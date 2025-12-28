@@ -1,0 +1,102 @@
+# Federated Learning Training Configuration
+# Project: IoT Network Attack Detection using Federated Learning
+# Dataset: CICIoT2023
+
+# ============================================================================
+# FEDERATED LEARNING SETTINGS
+# ============================================================================
+num_clients: 5                # Number of simulated IoT devices/clients
+num_rounds: 10                # FL communication rounds (increase to 50 if convergence is slow)
+local_epochs: 5               # Training epochs per client per round
+batch_size: 256               # Batch size for local training
+random_seed: 42               # For reproducibility
+
+# ============================================================================
+# MODEL ARCHITECTURE
+# ============================================================================
+model:
+  input_dim: 46               # Number of features (from includes.py::X_columns)
+  hidden_layers: [128, 64, 32]  # Hidden layer sizes (progressive reduction)
+  num_classes: 34             # Number of attack types (from includes.py::dict_34_classes)
+  dropout_rate: 0.3           # Dropout for regularization
+  activation: relu            # Activation function for hidden layers
+  output_activation: softmax  # Output layer activation
+
+# ============================================================================
+# OPTIMIZATION
+# ============================================================================
+optimizer:
+  type: adam                  # Optimizer type
+  learning_rate: 0.001        # Learning rate
+  beta_1: 0.9                 # Adam beta_1
+  beta_2: 0.999               # Adam beta_2
+  epsilon: 1.0e-7             # Adam epsilon
+
+loss_function: sparse_categorical_crossentropy  # Loss function
+metrics: [accuracy]           # Metrics to track
+
+# ============================================================================
+# DATA PROCESSING
+# ============================================================================
+data:
+  test_split_ratio: 0.2       # 80% train, 20% test
+  chunk_size: 50000           # Chunk size for loading large CSV files
+  normalization: minmax       # Normalization method (minmax or standard)
+  partition_strategy: non_iid # Data partitioning strategy (iid or non_iid)
+  
+  # Non-IID distribution strategy
+  # Each client gets majority of specific attack types
+  non_iid_config:
+    client_0: [DDoS]          # Client 0: 70% DDoS attacks
+    client_1: [Recon]         # Client 1: 70% Reconnaissance attacks
+    client_2: [Web]           # Client 2: 70% Web attacks
+    client_3: [Mirai]         # Client 3: 70% Mirai attacks
+    client_4: [Mixed]         # Client 4: Mixed distribution
+
+# ============================================================================
+# OUTPUT PATHS
+# ============================================================================
+paths:
+  output_dir: ../Output
+  models_dir: models
+  metrics_dir: metrics
+  data_dir: data
+  
+  # Output files
+  global_model: global_model.h5
+  scaler: scaler.pkl
+  label_encoder: label_encoder.pkl
+  labels_json: labels.json
+  training_history: training_history.json
+  metrics_report: metrics_report.json
+
+# ============================================================================
+# TRAINING CONTROL
+# ============================================================================
+training:
+  early_stopping: false       # Enable early stopping (set to true if needed)
+  early_stopping_patience: 10 # Patience for early stopping
+  save_checkpoints: true      # Save model checkpoints every N rounds
+  checkpoint_frequency: 10    # Save checkpoint every N rounds
+  verbose: 1                  # Verbosity level (0=silent, 1=progress, 2=detailed)
+
+# ============================================================================
+# EVALUATION
+# ============================================================================
+evaluation:
+  confusion_matrix: true      # Generate confusion matrix
+  per_class_metrics: true     # Calculate per-class precision/recall/F1
+  visualizations: true        # Generate plots
+  
+  # Visualization settings
+  figure_size: [12, 10]       # Default figure size
+  dpi: 300                    # DPI for saved figures
+  color_map: Blues            # Color map for confusion matrix
+
+# ============================================================================
+# EXPERIMENTAL SETTINGS (for testing)
+# ============================================================================
+experimental:
+  use_sample_data: false      # Set to true to use only 10% of data for testing
+  sample_fraction: 0.1        # Fraction of data to use if use_sample_data=true
+  debug_mode: false           # Enable debug logging
