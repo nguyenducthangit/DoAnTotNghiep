@@ -1,18 +1,28 @@
 """
-Utilities Package for Federated Learning IoT Attack Detection
+UtilitiesPackage for Federated Learning IoT Attack Detection
 
-This package contains utility modules for:
-- data_utils: Data loading, preprocessing, and partitioning
-- model_utils: Model architecture and compilation
-- fl_utils: Federated learning client/server logic
-
-Author: Nguyen Duc Thang
-Project: IoT Network Attack Detection using Federated Learning
+This package provides data processing, model utilities, FL training logic,
+feature selection (GSA), and advanced aggregation (FedMade).
 """
 
+# Import commonly used functions for easy access
 from . import data_utils
-from . import model_utils
-from . import fl_utils
+from . import model_utils_pytorch
+from . import fl_utils_pytorch
+from . import gsa_algorithm
+from . import fedmade_aggregation
+from . import feature_utils
+from . import includes
+from . import fl_utils_pytorch
 
-__all__ = ['data_utils', 'model_utils', 'fl_utils']
-__version__ = '1.0.0'
+__all__ = [
+    'data_utils',
+    'model_utils_pytorch',
+    'fl_utils_pytorch',
+    'gsa_algorithm',
+    'fedmade_aggregation',
+    'feature_utils',
+    'includes',
+    'fl_utils_pytorch'
+]
+__version__ = '2.0.0'  # Updated for GSA + FedMade

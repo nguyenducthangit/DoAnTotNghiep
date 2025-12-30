@@ -1,0 +1,80 @@
+asyncapi: 2.6.0
+id: urn:fl:iot:intrusion-detection
+defaultContentType: application/json
+
+info:
+  title: Federated Learning IoT System
+  version: 1.0.0
+  description: |
+    AsyncAPI specification for a Federated Learning based
+    intrusion detection system in IoT environment using MQTT.
+  contact:
+    name: Thesis Author
+    email: student@example.com
+  license:
+    name: Academic Use
+    url: https://opensource.org/licenses/MIT
+
+tags:
+  - name: IoT
+    description: Internet of Things devices
+  - name: FederatedLearning
+    description: Distributed machine learning architecture
+  - name: Security
+    description: Intrusion detection system
+
+servers:
+  mqttBroker:
+    url: mqtt://localhost:1883
+    protocol: mqtt
+    description: Local MQTT Broker
+
+channels:
+  fl/model/update:
+    publish:
+      operationId: publishLocalModelUpdate
+      summary: IoT client sends local model update
+      tags:
+        - name: FederatedLearning
+      message:
+        messageId: modelUpdateMessage
+        name: ModelUpdate
+        payload:
+          type: object
+          properties:
+            clientId:
+              type: string
+            round:
+              type: integer
+            weights:
+              type: array
+              items:
+                type: number
+            accuracy:
+              type: number
+          required:
+            - clientId
+            - round
+            - weights
+
+  fl/model/global:
+    subscribe:
+      operationId: receiveGlobalModel
+      summary: Server sends aggregated global model
+      tags:
+        - name: FederatedLearning
+      message:
+        messageId: globalModelMessage
+        name: GlobalModel
+        payload:
+          type: object
+          properties:
+            round:
+              type: integer
+            globalWeights:
+              type: array
+              items:
+                type: number
+          required:
+            - round
+            - globalWeights

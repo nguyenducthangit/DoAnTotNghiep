@@ -18,9 +18,8 @@ from sklearn.model_selection import train_test_split
 from typing import Dict, List, Tuple
 import sys
 
-# Add parent directory to path to import includes
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from includes import X_columns, y_column, dict_34_classes
+# Import from local includes module
+from .includes import X_columns, y_column, dict_34_classes
 
 
 def load_dataset_chunked(data_dir: str, chunk_size: int = 50000, 
@@ -124,13 +123,13 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def encode_labels(df: pd.DataFrame, label_col: str = y_column, 
+def encode_labels(df_train: pd.DataFrame, label_col: str = y_column, 
                   save_path: str = None) -> Tuple[pd.DataFrame, LabelEncoder, Dict]:
     """
     Encode attack labels from strings to numeric values (0-33).
     
     Args:
-        df: DataFrame with label column
+        df_train: DataFrame with label column
         label_col: Name of the label column
         save_path: Path to save the label encoder (optional)
         
@@ -140,16 +139,16 @@ def encode_labels(df: pd.DataFrame, label_col: str = y_column,
     print(f"\n🏷️  Encoding labels...")
     
     # Check label distribution
-    label_counts = df[label_col].value_counts()
+    label_counts = df_train[label_col].value_counts()
     print(f"   Found {len(label_counts)} unique labels:")
     for label, count in label_counts.head(10).items():
-        print(f"      {label}: {count:,} ({count/len(df)*100:.2f}%)")
+        print(f"      {label}: {count:,} ({count/len(df_train)*100:.2f}%)")
     if len(label_counts) > 10:
         print(f"      ... and {len(label_counts) - 10} more")
     
     # Create label encoder
     le = LabelEncoder()
-    df[label_col] = le.fit_transform(df[label_col])
+    df_train[label_col] = le.fit_transform(df_train[label_col])
     
     # Create human-readable mapping
     label_mapping = {i: label for i, label in enumerate(le.classes_)}
@@ -170,16 +169,16 @@ def encode_labels(df: pd.DataFrame, label_col: str = y_column,
             json.dump(label_mapping, f, indent=2)
         print(f"   💾 Saved label mapping to: {json_path}")
     
-    return df, le, label_mapping
+    return df_train, le, label_mapping
 
 
-def normalize_features(df: pd.DataFrame, feature_cols: List[str] = X_columns,
+def normalize_features(df_train: pd.DataFrame, feature_cols: List[str] = X_columns,
                        save_path: str = None) -> Tuple[pd.DataFrame, MinMaxScaler]:
     """
     Normalize features using MinMaxScaler to [0, 1] range.
     
     Args:
-        df: DataFrame with features
+        df_train: DataFrame with features
         feature_cols: List of feature column names
         save_path: Path to save the scaler (optional)
         
@@ -189,16 +188,16 @@ def normalize_features(df: pd.DataFrame, feature_cols: List[str] = X_columns,
     print(f"\n📏 Normalizing features...")
     
     # Check if all feature columns exist
-    missing_cols = [col for col in feature_cols if col not in df.columns]
+    missing_cols = [col for col in feature_cols if col not in df_train.columns]
     if missing_cols:
         print(f"   ⚠️  Warning: {len(missing_cols)} feature columns not found in dataset")
         print(f"      Missing: {missing_cols[:5]}...")
-        feature_cols = [col for col in feature_cols if col in df.columns]
+        feature_cols = [col for col in feature_cols if col in df_train.columns]
         print(f"   Using {len(feature_cols)} available features")
     
     # Fit scaler
     scaler = MinMaxScaler()
-    df[feature_cols] = scaler.fit_transform(df[feature_cols])
+    df_train[feature_cols] = scaler.fit_transform(df_train[feature_cols])
     
     print(f"   ✓ Normalized {len(feature_cols)} features to [0, 1] range")
     
@@ -209,10 +208,10 @@ def normalize_features(df: pd.DataFrame, feature_cols: List[str] = X_columns,
             pickle.dump(scaler, f)
         print(f"   💾 Saved scaler to: {scaler_path}")
     
-    return df, scaler
+    return df_train, scaler
 
 
-def partition_data_noniid(df: pd.DataFrame, num_clients: int = 5, 
+def partition_data_noniid(df_train: pd.DataFrame, num_clients: int = 5, 
                           label_col: str = y_column,
                           test_split: float = 0.2,
                           random_seed: int = 42) -> Dict[str, Dict[str, np.ndarray]]:
@@ -221,82 +220,161 @@ def partition_data_noniid(df: pd.DataFrame, num_clients: int = 5,
     Each client gets a majority of specific attack types to simulate heterogeneity.
     
     Args:
-        df: DataFrame with features and labels
+        df_train: DataFrame with features and labels (TRAINING DATA ONLY, test already separated)
         num_clients: Number of clients to partition data for
         label_col: Name of the label column
-        test_split: Fraction of data to reserve for testing
+        test_split: Fraction of data to reserve for testing (IGNORED - for backward compatibility)
         random_seed: Random seed for reproducibility
         
     Returns:
-        Dictionary with client data: {'client_0': {'X': ..., 'y': ...}, 'test': {...}}
+        Dictionary with client data: {'client_0': {'X': ..., 'y': ...}}
+        Note: 'test' should be added separately after calling this function
     """
     print(f"\n🔀 Partitioning data for {num_clients} clients (Non-IID)...")
     
     # Separate features and labels
-    X = df.drop(columns=[label_col]).values
-    y = df[label_col].values
+    X_train = df_train.drop(columns=[label_col]).values
+    y_train = df_train[label_col].values
     
-    # Split into train and test
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_split, random_state=random_seed, stratify=y
-    )
+    print(f"   Total training samples: {len(X_train):,}")
     
-    print(f"   Train set: {len(X_train):,} samples")
-    print(f"   Test set: {len(X_test):,} samples")
+    # Check what labels actually exist in the data
+    unique_labels = np.unique(y_train)
+    print(f"   Found {len(unique_labels)} unique labels in training data")
     
-    # Define attack type groups (based on dict_34_classes from includes.py)
+    # Count samples per label
+    from collections import Counter
+    label_counts = Counter(y_train)
+    print(f"\n   Label distribution (showing labels with < 100 samples):")
+    for label in sorted(unique_labels):
+        count = label_counts[label]
+        if count < 100:
+            print(f"      Label {label}: {count} samples")
+    
+    # Define attack type groups for Non-IID distribution
+    # IMPORTANT: Ensure ALL labels (0-33) are covered
     attack_groups = {
-        'DDoS': list(range(1, 13)),      # DDoS attacks: 1-12
-        'DoS': list(range(13, 17)),      # DoS attacks: 13-16
-        'Mirai': list(range(17, 20)),    # Mirai: 17-19
-        'Recon': list(range(20, 25)),    # Reconnaissance: 20-24
-        'Spoofing': list(range(25, 27)), # Spoofing: 25-26
-        'Web': list(range(27, 33)),      # Web attacks: 27-32
-        'BruteForce': [33]               # Brute Force: 33
+        'DDoS': list(range(4, 16)),      # DDoS attacks (labels 4-15)
+        'DoS': list(range(16, 20)),      # DoS attacks (labels 16-19)
+        'Mirai': list(range(20, 23)),    # Mirai attacks (labels 20-22)
+        'Recon': list(range(23, 28)),    # Reconnaissance (labels 23-27)
+        'Others': [0, 1, 2, 3, 28, 29, 30, 31, 32, 33]  # All other attack types
     }
     
-    # Partition strategy: Each client gets 70% of a specific attack group
+    # Verify all labels are covered
+    all_grouped_labels = set()
+    for group_labels in attack_groups.values():
+        all_grouped_labels.update(group_labels)
+    
+    # Find any labels not in groups
+    ungrouped_labels = set(unique_labels) - all_grouped_labels
+    if ungrouped_labels:
+        print(f"\n   ⚠️  Found {len(ungrouped_labels)} labels not in attack groups: {sorted(ungrouped_labels)}")
+        print(f"   → Adding to 'Others' group")
+        attack_groups['Others'].extend(sorted(ungrouped_labels))
+    
+    # Verify all existing labels are now in groups
+    all_grouped_labels = set()
+    for group_labels in attack_groups.values():
+        all_grouped_labels.update(group_labels)
+    
+    missing_labels = set(unique_labels) - all_grouped_labels
+    if missing_labels:
+        raise ValueError(f"ERROR: Labels {sorted(missing_labels)} are not assigned to any group!")
+    
+    print(f"\n   ✅ All {len(unique_labels)} labels are covered in attack groups")
+    
+    # Partition strategy: Each client gets majority (70%) of specific attack group
+    # Remaining 30% goes to other clients for some overlap
     client_data = {}
-    remaining_indices = list(range(len(X_train)))
+    assigned_indices = set()
+    
+    # Assign attack groups to clients
+    group_names = list(attack_groups.keys())[:num_clients]  # Take first N groups
     
     for client_id in range(num_clients):
-        if client_id < len(attack_groups):
+        if client_id < len(group_names):
             # Assign majority of specific attack type
-            group_name = list(attack_groups.keys())[client_id]
+            group_name = group_names[client_id]
             group_labels = attack_groups[group_name]
             
-            # Find indices for this attack group
-            group_indices = [i for i in remaining_indices 
+            # Find all indices for this attack group
+            group_indices = [i for i in range(len(X_train)) 
                            if y_train[i] in group_labels]
             
-            # Take 70% of this group
-            np.random.seed(random_seed + client_id)
-            n_samples = int(len(group_indices) * 0.7)
-            selected = np.random.choice(group_indices, size=n_samples, replace=False)
-            
-            # Remove from remaining
-            remaining_indices = [i for i in remaining_indices if i not in selected]
-            
-            client_data[f'client_{client_id}'] = {
-                'X': X_train[selected],
-                'y': y_train[selected]
-            }
-            
-            print(f"   Client {client_id} ({group_name}): {len(selected):,} samples")
-            
-        else:
-            # Last client gets mixed distribution from remaining data
-            client_data[f'client_{client_id}'] = {
-                'X': X_train[remaining_indices],
-                'y': y_train[remaining_indices]
-            }
-            print(f"   Client {client_id} (Mixed): {len(remaining_indices):,} samples")
+            if len(group_indices) > 0:
+                # Take 70% of this group
+                np.random.seed(random_seed + client_id)
+                n_samples = max(1, int(len(group_indices) * 0.7))
+                selected = np.random.choice(group_indices, size=n_samples, replace=False)
+                
+                # Mark as assigned
+                assigned_indices.update(selected)
+                
+                client_data[f'client_{client_id}'] = {
+                    'X': X_train[selected],
+                    'y': y_train[selected]
+                }
+                
+                print(f"   Client {client_id} ({group_name}): {len(selected):,} samples from labels {group_labels[:5]}{'...' if len(group_labels) > 5 else ''}")
+            else:
+                print(f"   ⚠️  Client {client_id} ({group_name}): No samples found for this group!")
+                client_data[f'client_{client_id}'] = {
+                    'X': np.array([]).reshape(0, X_train.shape[1]),
+                    'y': np.array([], dtype=y_train.dtype)
+                }
     
-    # Add test set
-    client_data['test'] = {
-        'X': X_test,
-        'y': y_test
-    }
+    # Distribute ALL remaining unassigned data across clients
+    remaining_unassigned = [i for i in range(len(X_train)) if i not in assigned_indices]
+    
+    if remaining_unassigned:
+        print(f"\n   Distributing {len(remaining_unassigned):,} remaining samples across all clients...")
+        
+        # Split remaining data evenly across all clients
+        np.random.seed(random_seed)
+        np.random.shuffle(remaining_unassigned)
+        
+        chunk_size = len(remaining_unassigned) // num_clients
+        
+        for client_id in range(num_clients):
+            # Get chunk for this client
+            start_idx = client_id * chunk_size
+            end_idx = (client_id + 1) * chunk_size if client_id < num_clients - 1 else len(remaining_unassigned)
+            client_remaining = remaining_unassigned[start_idx:end_idx]
+            
+            if len(client_remaining) > 0:
+                # Append to client
+                if len(client_data[f'client_{client_id}']['X']) > 0:
+                    client_data[f'client_{client_id}']['X'] = np.vstack([
+                        client_data[f'client_{client_id}']['X'],
+                        X_train[client_remaining]
+                    ])
+                    client_data[f'client_{client_id}']['y'] = np.concatenate([
+                        client_data[f'client_{client_id}']['y'],
+                        y_train[client_remaining]
+                    ])
+                else:
+                    client_data[f'client_{client_id}'] = {
+                        'X': X_train[client_remaining],
+                        'y': y_train[client_remaining]
+                    }
+                
+                print(f"      → Client {client_id} gets +{len(client_remaining):,} samples")
+    
+    # Verify all data is assigned
+    total_assigned = sum(len(data['X']) for data in client_data.values())
+    
+    print(f"\n   📊 Final distribution:")
+    for client_id in range(num_clients):
+        n_samples = len(client_data[f'client_{client_id}']['X'])
+        pct = (n_samples / len(X_train)) * 100 if len(X_train) > 0 else 0
+        print(f"      Client {client_id}: {n_samples:,} samples ({pct:.1f}%)")
+    
+    if total_assigned != len(X_train):
+        print(f"\n   ❌ ERROR: {len(X_train) - total_assigned:,} samples not assigned!")
+        raise ValueError(f"Data assignment error: {total_assigned} assigned vs {len(X_train)} total")
+    else:
+        print(f"\n   ✅ All {len(X_train):,} training samples assigned successfully")
     
     return client_data
 
@@ -336,6 +414,80 @@ def load_client_data(data_dir: str, client_name: str) -> Dict[str, np.ndarray]:
     file_path = os.path.join(data_dir, f'{client_name}_data.npz')
     data = np.load(file_path)
     return {'X': data['X'], 'y': data['y']}
+
+
+def filter_features_by_names(
+    df: pd.DataFrame,
+    selected_features: List[str],
+    label_col: str = y_column
+) -> pd.DataFrame:
+    """
+    Filter DataFrame to include only selected features and label column.
+    
+    Args:
+        df: DataFrame with all features
+        selected_features: List of feature names to keep
+        label_col: Name of label column
+        
+    Returns:
+        Filtered DataFrame
+    """
+    # Ensure label column is included
+    cols_to_keep = list(selected_features) + [label_col]
+    
+    # Check if all selected features exist
+    missing_features = set(selected_features) - set(df.columns)
+    if missing_features:
+        raise ValueError(f"Features not found in DataFrame: {missing_features}")
+    
+    # Filter
+    df_filtered = df[cols_to_keep].copy()
+    
+    print(f"✅ Filtered features: {len(selected_features)} features retained")
+    return df_filtered
+
+
+def load_selected_features_list(json_path: str) -> List[str]:
+    """
+    Load selected feature list from GSA results JSON.
+    
+    Args:
+        json_path: Path to selected_features.json from GSA
+        
+    Returns:
+        List of selected feature names
+    """
+    import json
+    
+    with open(json_path, 'r') as f:
+        results = json.load(f)
+    
+    selected_features = results['selected_features']
+    print(f"✅ Loaded {len(selected_features)} selected features from {json_path}")
+    
+    return selected_features
+
+
+def save_feature_list(feature_names: List[str], save_path: str) -> None:
+    """
+    Save feature list to JSON file.
+    
+    Args:
+        feature_names: List of feature names
+        save_path: Path to save JSON file
+    """
+    import json
+    
+    feature_data = {
+        'features': feature_names,
+        'num_features': len(feature_names),
+        'timestamp': pd.Timestamp.now().isoformat()
+    }
+    
+    with open(save_path, 'w') as f:
+        json.dump(feature_data, f, indent=2)
+    
+    print(f"✅ Saved {len(feature_names)} features to {save_path}")
 
 
 if __name__ == '__main__':

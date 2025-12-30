@@ -1,3 +1,8 @@
 /DataSets/
 /DataTests/
 /Output/data
+docs/
+asyncapi-docs/
+.pkl
+.csv
+/Output/

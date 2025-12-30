@@ -3,16 +3,21 @@
 # Dataset: CICIoT2023
 
 # ============================================================================
+# FRAMEWORK SELECTION
+# ============================================================================
+framework: pytorch            # Framework: 'tensorflow' (DNN) or 'pytorch' (TabTransformer)
+
+# ============================================================================
 # FEDERATED LEARNING SETTINGS
 # ============================================================================
 num_clients: 5                # Number of simulated IoT devices/clients
-num_rounds: 10                # FL communication rounds (increase to 50 if convergence is slow)
-local_epochs: 5               # Training epochs per client per round
+num_rounds: 30                # FL communication rounds (increased from 10 to 30 for better convergence)
+local_epochs: 10               # Training epochs per client per round (reduced from 20 to 5 for FL stability)
 batch_size: 256               # Batch size for local training
 random_seed: 42               # For reproducibility
 
 # ============================================================================
-# MODEL ARCHITECTURE
+# MODEL ARCHITECTURE (TensorFlow DNN - used when framework='tensorflow')
 # ============================================================================
 model:
   input_dim: 46               # Number of features (from includes.py::X_columns)
@@ -21,6 +26,35 @@ model:
   dropout_rate: 0.3           # Dropout for regularization
   activation: relu            # Activation function for hidden layers
   output_activation: softmax  # Output layer activation
+
+# ============================================================================
+# TABTRANSFORMER ARCHITECTURE (PyTorch - used when framework='pytorch')
+# ============================================================================
+tabtransformer:
+  embedding_dim: 32           # Dimension for embeddings (categorical and numerical)
+  num_transformer_layers: 2   # Number of transformer encoder layers
+  num_attention_heads: 4      # Number of attention heads per layer
+  ff_hidden_dim: 128          # Feed-forward network hidden dimension
+  dropout_rate: 0.1           # Dropout rate for regularization
+  attention_dropout: 0.1      # Dropout rate for attention weights
+  use_cls_token: true         # Use CLS token for classification (vs mean pooling)
+
+# ============================================================================
+# FEATURE CONFIGURATION
+# ============================================================================
+features:
+  # Categorical vs Numerical split
+  # If empty, will auto-detect or use default (20 categorical, 26 numerical)
+  categorical_indices: []     # List of categorical feature indices (0-based)
+  numerical_indices: []       # List of numerical feature indices (0-based)
+  
+  # Categorical feature cardinalities (unique values per feature)
+  # Required for TabTransformer - will be auto-detected if empty
+  categorical_cardinalities: []  # e.g. [10, 5, 100, 50, ...]
+  
+  # Note: For CICIoT2023 dataset, typical split is ~20 categorical, ~26 numerical
+  # Categorical: protocol, source/dest ports, flags, connection state, etc.
+  # Numerical: packet counts, byte counts, durations, rates, etc.
 
 # ============================================================================
 # OPTIMIZATION
@@ -92,6 +126,53 @@ evaluation:
   figure_size: [12, 10]       # Default figure size
   dpi: 300                    # DPI for saved figures
   color_map: Blues            # Color map for confusion matrix
+
+# ============================================================================
+# GSA FEATURE SELECTION
+# ============================================================================
+gsa:
+  enabled: true
+  num_features_to_select: 20
+  
+  # --- TỐI ƯU SỐ LƯỢNG TÍNH TOÁN ---
+  max_iterations: 30           # Giảm từ 50 xuống 30 (GSA hội tụ khá nhanh)
+  population_size: 15          # Giảm từ 30 xuống 15 (Đủ cho không gian 46 features)
+  
+  # --- CẤU HÌNH VẬT LÝ (GIỮ NGUYÊN) ---
+  gravitational_constant: 100.0
+  alpha: 20.0
+  
+  # --- TỐI ƯU DỮ LIỆU ĐẦU VÀO (QUAN TRỌNG NHẤT) ---
+  use_sample: true
+  sample_fraction: 0.05        # Giảm từ 0.2 (20%) xuống 0.05 (5%)
+  random_seed: 42
+
+  # Output paths
+  output_dir: ../Output/gsa_results
+  selected_features_json: selected_features.json
+  convergence_plot: gsa_convergence.png
+  feature_importance_json: feature_importance.json
+
+# ============================================================================
+# AGGREGATION STRATEGY
+# ============================================================================
+aggregation:
+  method: fedmade               # 'fedavg' or 'fedmade'
+  
+  # FedMade-specific parameters
+  fedmade:
+    use_client_metrics: true    # Use validation metrics for scoring
+    layer_matching: true        # Enable layer-wise aggregation
+    contribution_threshold: 0.2 # Min score to include client (0.0 = no filtering)
+    accuracy_weight: 0.7        # Weight for accuracy in contribution score
+    loss_weight: 0.3            # Weight for loss in contribution score
+    normalize_scores: true      # Normalize scores to sum to 1
+    verbose: true               # Log contribution scores each round
+    
+    # Output paths
+    output_dir: ../Output/aggregation_metrics
+    contribution_scores_json: contribution_scores.json
+    client_metrics_json: client_metrics.json
 
 # ============================================================================
 # EXPERIMENTAL SETTINGS (for testing)
